@@ -46,7 +46,7 @@ class UserController(
     }
 
     @PostMapping("/login")
-    fun loginUser(@RequestBody user: User): ResponseEntity<String>{
+    fun loginUser(@RequestBody user: User): ResponseEntity<Map<String,String>>{
         try {
             return ResponseEntity(userRegistrationService.verify(user), HttpStatus.OK)
         } catch (e: BadCredentialsException) {

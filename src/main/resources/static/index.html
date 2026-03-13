@@ -647,6 +647,7 @@
 <script>
   const BASE = 'http://localhost:8080';
   let token = localStorage.getItem('sm_token') || '';
+  let refreshToken = localStorage.getItem('sm_refresh_token') || '';
   let authMode = 'login';
   let stompClient = null;
   let allNotifications = [];   // current page's data
@@ -676,6 +677,37 @@
 
   function headers() {
     return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+  }
+
+  // Wraps fetch with automatic JWT refresh on 401.
+  // If the refresh also fails, logs the user out.
+  async function apiFetch(url, options = {}) {
+    options.headers = { ...headers(), ...(options.headers || {}) };
+    let res = await fetch(url, options);
+
+    if ((res.status === 401 || res.status === 403) && refreshToken) {
+      // Attempt silent refresh
+      const refreshRes = await fetch(`${BASE}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken })
+      });
+
+      if (refreshRes.ok) {
+        const newAccessToken = await refreshRes.text();
+        token = newAccessToken;
+        localStorage.setItem('sm_token', token);
+        // Retry the original request with the new token
+        options.headers['Authorization'] = `Bearer ${token}`;
+        res = await fetch(url, options);
+      } else {
+        logout();
+        showMsg('auth-msg', 'Your session has expired. Please log in again.', 'error');
+        return null;
+      }
+    }
+
+    return res;
   }
 
   // ---- AUTH ----
@@ -712,8 +744,11 @@
       showMsg('auth-msg', 'Registered! Now login.', 'success');
       toggleAuthMode();
     } else {
-      token = text;
+      const data = JSON.parse(text);
+      token = data.accessToken;
+      refreshToken = data.refreshToken;
       localStorage.setItem('sm_token', token);
+      localStorage.setItem('sm_refresh_token', refreshToken);
       showApp();
     }
   }
@@ -724,7 +759,9 @@
 
   function logout() {
     token = '';
+    refreshToken = '';
     localStorage.removeItem('sm_token');
+    localStorage.removeItem('sm_refresh_token');
     disconnectWS();
     document.getElementById('app-screen').style.display = 'none';
     document.getElementById('auth-screen').style.display = 'flex';
@@ -775,8 +812,9 @@
       url = `${BASE}/api/notifications/status/${currentFilter}?page=${pgPage}&size=${pgSize}&sortBy=${pgSort}`;
     }
 
-    const res = await fetch(url, { headers: headers() });
-    if (res.status === 401) { logout(); return; }
+    const res = await apiFetch(url);
+    if (!res) return; // apiFetch already called logout() and showed the message
+    if (res.status === 401 || res.status === 403) { logout(); return; }
 
     const page = await res.json();
     allNotifications = page.content || [];
@@ -897,7 +935,7 @@
 
     const body = { database_id: db_id, status, message, timeStamp: toISOLocal(ts) };
 
-    const res = await fetch(`${BASE}/api/notifications/notify`, {
+    const res = await apiFetch(`${BASE}/api/notifications/notify`, {
       method: 'POST', headers: headers(), body: JSON.stringify(body)
     });
     if (res.ok) {
@@ -911,13 +949,13 @@
 
   // ---- DELETE ----
   async function deleteNotification(id) {
-    await fetch(`${BASE}/api/notifications/drop/${id}`, { method: 'DELETE', headers: headers() });
+    await apiFetch(`${BASE}/api/notifications/drop/${id}`, { method: 'DELETE', headers: headers() });
     // WS will trigger reload
   }
 
   // ---- TOGGLE ----
   async function toggleStatus(id, status) {
-    await fetch(`${BASE}/api/notifications/${id}/${status}`, { method: 'PUT', headers: headers() });
+    await apiFetch(`${BASE}/api/notifications/${id}/${status}`, { method: 'PUT', headers: headers() });
     // WS handles update
   }
 
@@ -943,7 +981,7 @@
     const ts = document.getElementById('edit-timestamp').value;
 
     const body = { id, database_id, status, message, timeStamp: toISOLocal(ts) };
-    const res = await fetch(`${BASE}/api/notifications/notification`, {
+    const res = await apiFetch(`${BASE}/api/notifications/notification`, {
       method: 'PUT', headers: headers(), body: JSON.stringify(body)
     });
     if (res.ok) closeModal();

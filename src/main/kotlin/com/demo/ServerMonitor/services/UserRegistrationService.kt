@@ -54,7 +54,7 @@ class UserRegistrationService (
         usersRepository.save(user)                                        //created registrationDTO to use for raw validation (not encrypted)
     }
 
-    fun verify(user : User) : String{
+    fun verify(user : User) : Map<String, String> {
         val authenticated : Authentication = authenticationManager.authenticate(
             UsernamePasswordAuthenticationToken(
                 user.username,
@@ -66,8 +66,7 @@ class UserRegistrationService (
             val accessToken = jwtService.generateToken(user.username, user.role)
             val refreshToken = refreshTokenService.createRefreshToken(user.username).token
 
-            //return mapOf("accessToken" to accessToken,"refreshToken" to refreshToken)
-            return accessToken
+            return mapOf("accessToken" to accessToken,"refreshToken" to refreshToken)
         }
         throw BadCredentialsException("Authentication failed")
     }

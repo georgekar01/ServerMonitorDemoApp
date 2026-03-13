@@ -4,6 +4,7 @@
 
 >Security:  Custom authentication using username and password
             JWT suppport
+            JWT refresh support (only works on postman right now)
             Role based authorization
 
 >Validation: Custom password format validation

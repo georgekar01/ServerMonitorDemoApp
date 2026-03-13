@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ServerMonitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #151515;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --muted: #666;
+      --accent: #c8ff00;
+      --accent-dim: #9abf00;
+      --up: #4ade80;
+      --down: #f87171;
+      --degraded: #fb923c;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'IBM Plex Sans', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ---- AUTH ---- */
+    #auth-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .auth-layout {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      width: 100%;
+      max-width: 760px;
+    }
+    .auth-box {
+      width: 100%;
+      max-width: 360px;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 40px 36px;
+    }
+    .auth-users-panel {
+      flex: 1;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 20px;
+      min-width: 0;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+    @media (max-width: 680px) {
+      .auth-layout { flex-direction: column; align-items: stretch; }
+      .auth-box { max-width: 100%; }
+      .auth-users-panel { max-height: 260px; }
+    }
+    .auth-title {
+      font-family: var(--mono);
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+    .auth-sub {
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+      margin-bottom: 32px;
+    }
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 12px;
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      border-color: var(--accent);
+    }
+    .field textarea { resize: vertical; min-height: 64px; }
+    .field select option { background: var(--surface); }
+
+    .btn {
+      display: inline-block;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .btn:hover { background: var(--accent-dim); }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+    .btn-danger {
+      background: transparent;
+      border: 1px solid #f87171;
+      color: #f87171;
+      padding: 5px 10px;
+      font-size: 11px;
+    }
+    .btn-danger:hover { background: #f8717122; }
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 11px;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .auth-toggle {
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .auth-toggle span {
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .msg { font-family: var(--mono); font-size: 12px; margin-top: 12px; padding: 8px 12px; }
+    .msg.error { background: #f8717122; color: #f87171; border-left: 2px solid #f87171; }
+    .msg.success { background: #4ade8022; color: #4ade80; border-left: 2px solid #4ade80; }
+
+    /* ---- MAIN APP ---- */
+    #app-screen { display: none; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar-brand {
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--accent);
+      font-size: 15px;
+      letter-spacing: -0.5px;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .ws-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      display: inline-block;
+      transition: background 0.3s;
+    }
+    .ws-dot.connected { background: var(--up); box-shadow: 0 0 6px var(--up); }
+    .ws-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+    .main-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 53px);
+    }
+
+    /* ---- LEFT PANEL ---- */
+    .left-panel {
+      border-right: 1px solid var(--border);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .panel-title {
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ---- RIGHT PANEL ---- */
+    .right-panel { padding: 24px; }
+
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      transition: all 0.15s;
+    }
+    .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); }
+    .filter-btn.up.active { border-color: var(--up); color: var(--up); }
+    .filter-btn.down.active { border-color: var(--down); color: var(--down); }
+    .filter-btn.degraded.active { border-color: var(--degraded); color: var(--degraded); }
+
+    /* ---- NOTIFICATION CARDS ---- */
+    #notifications-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .notif-card {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: start;
+      animation: slideIn 0.2s ease;
+      transition: border-color 0.15s;
+    }
+    .notif-card:hover { border-color: #3a3a3a; }
+    .notif-card.new { animation: flashIn 0.4s ease; }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes flashIn {
+      0% { border-color: var(--accent); background: #c8ff0011; }
+      100% { border-color: var(--border); background: var(--surface); }
+    }
+
+    .status-pill {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid;
+      white-space: nowrap;
+    }
+    .status-pill.UP { color: var(--up); border-color: var(--up); }
+    .status-pill.DOWN { color: var(--down); border-color: var(--down); }
+    .status-pill.DEGRADED { color: var(--degraded); border-color: var(--degraded); }
+
+    .notif-body { min-width: 0; }
+    .notif-msg {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .notif-meta {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 5px;
+    }
+
+    .notif-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+      align-items: center;
+    }
+
+    .toggle-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+
+    /* ---- EDIT MODAL ---- */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: #000000cc;
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 32px;
+      width: 100%;
+      max-width: 440px;
+    }
+    .modal-title {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+    .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+
+    .empty-state {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      padding: 40px 0;
+      text-align: center;
+    }
+
+    /* ---- PAGINATION ---- */
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 0;
+      padding-top: 0;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-top: none;
+      border-bottom: 1px solid var(--border);
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .page-btn {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      min-width: 32px;
+      text-align: center;
+    }
+    .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .page-btn.active { border-color: var(--accent); color: var(--accent); background: #c8ff0011; }
+    .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .page-btn.arrow { font-size: 14px; padding: 4px 10px; }
+    .pagination-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .pagination-meta span { color: var(--text); }
+    .pagination-options {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .pagination-options label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .pagination-options select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .pagination-options select:focus { border-color: var(--accent); }
+
+    /* ---- USERS PANEL ---- */
+    .users-list { display: flex; flex-direction: column; gap: 6px; }
+    .user-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      gap: 8px;
+    }
+    .user-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .user-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .user-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+    .role-badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border: 1px solid;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .role-badge.SUPERADMIN { color: var(--accent); border-color: var(--accent); }
+    .role-badge.ADMIN      { color: var(--degraded); border-color: var(--degraded); }
+    .role-badge.USER       { color: var(--muted); border-color: var(--border); }
+    .users-refresh-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .users-refresh-row .panel-title { margin: 0; padding: 0; border: none; }
+
+    @media (max-width: 700px) {
+      .main-layout { grid-template-columns: 1fr; }
+      .left-panel { border-right: none; border-bottom: 1px solid var(--border); }
+      .pagination-bar { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-layout">
+    <div class="auth-box">
+      <div class="auth-title">ServerMonitor</div>
+      <div class="auth-sub">// access control</div>
+
+      <div id="auth-msg"></div>
+
+      <div class="field">
+        <label>Username</label>
+        <input id="auth-username" type="text" placeholder="username" autocomplete="off"/>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="auth-password" type="password" placeholder="••••••••"/>
+      </div>
+      <button class="btn" onclick="submitAuth()" style="width:100%">Login</button>
+
+      <div class="auth-toggle">
+        <span id="auth-switch-text">No account? <span onclick="toggleAuthMode()">Register</span></span>
+      </div>
+    </div>
+
+    <!-- USERS PEEK PANEL -->
+    <div class="auth-users-panel">
+      <div class="users-refresh-row">
+        <div class="panel-title">Registered Users</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadUsers()" title="Refresh">↻ Refresh</button>
+      </div>
+      <div class="users-list" id="auth-users-list">
+        <div class="empty-state" style="padding:16px 0;font-size:11px;">Click refresh to load.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app-screen">
+  <div class="topbar">
+    <div class="topbar-brand">// ServerMonitor</div>
+    <div class="topbar-right">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="ws-dot" id="ws-dot"></div>
+        <span class="ws-label" id="ws-label">ws: disconnected</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <!-- CREATE FORM -->
+    <div class="left-panel">
+      <div>
+        <div class="panel-title">New Notification</div>
+        <div class="field">
+          <label>Database ID</label>
+          <input id="new-db-id" type="number" placeholder="e.g. 1"/>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="new-status">
+            <option value="UP">UP</option>
+            <option value="DOWN">DOWN</option>
+            <option value="DEGRADED">DEGRADED</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Message</label>
+          <textarea id="new-message" placeholder="Describe the event..."></textarea>
+        </div>
+        <div class="field">
+          <label>Timestamp</label>
+          <input id="new-timestamp" type="datetime-local"/>
+        </div>
+        <div id="create-msg"></div>
+        <button class="btn" onclick="createNotification()" style="width:100%;margin-top:4px;">
+          + Create
+        </button>
+      </div>
+
+      <!-- USERS LIST -->
+      <div>
+        <div class="users-refresh-row">
+          <div class="panel-title">Registered Users</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-ghost btn-sm" id="users-toggle-btn" onclick="toggleUsers()">Hide</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadUsers()" title="Refresh">↻ Refresh</button>
+          </div>
+        </div>
+        <div id="users-collapsible" style="display:none">
+          <div class="users-list" id="users-list">
+            <div class="empty-state" style="padding:16px 0;font-size:11px;">Click refresh to load.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div class="right-panel">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterBy('ALL', this)">All</button>
+        <button class="filter-btn up" onclick="filterBy('UP', this)">UP</button>
+        <button class="filter-btn down" onclick="filterBy('DOWN', this)">DOWN</button>
+        <button class="filter-btn degraded" onclick="filterBy('DEGRADED', this)">DEGRADED</button>
+      </div>
+      <!-- PAGINATION -->
+      <div class="pagination-bar" id="pagination-bar" style="display:none;">
+        <div class="pagination-meta">
+          Page <span id="pg-current">1</span> of <span id="pg-total">1</span>
+          &nbsp;·&nbsp; <span id="pg-count">0</span> results
+        </div>
+        <div class="pagination-controls" id="pg-controls"></div>
+        <div class="pagination-options">
+          <label>Per page</label>
+          <select id="pg-size" onchange="onPageSizeChange()">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+          </select>
+          <label>Sort by</label>
+          <select id="pg-sort" onchange="onSortChange()">
+            <option value="status">Status</option>
+            <option value="timeStamp">Time</option>
+            <option value="database_id">DB ID</option>
+            <option value="id">ID</option>
+          </select>
+        </div>
+      </div>
+      <div id="notifications-list"><div class="empty-state">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal-box">
+    <div class="modal-title">Edit Notification</div>
+    <input type="hidden" id="edit-id"/>
+    <div class="field">
+      <label>Database ID</label>
+      <input id="edit-db-id" type="number"/>
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="edit-status">
+        <option value="UP">UP</option>
+        <option value="DOWN">DOWN</option>
+        <option value="DEGRADED">DEGRADED</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Message</label>
+      <textarea id="edit-message"></textarea>
+    </div>
+    <div class="field">
+      <label>Timestamp</label>
+      <input id="edit-timestamp" type="datetime-local"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="saveEdit()">Save</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const BASE = 'http://localhost:8080';
+  let token = localStorage.getItem('sm_token') || '';
+  let authMode = 'login';
+  let stompClient = null;
+  let allNotifications = [];   // current page's data
+  let currentFilter = 'ALL';
+
+  // Pagination state
+  let pgPage = 0;        // 0-indexed (Spring convention)
+  let pgSize = 10;
+  let pgSort = 'status';
+  let pgTotalPages = 1;
+  let pgTotalElements = 0;
+
+  // ---- BOOT ----
+  window.onload = () => {
+    document.getElementById('new-timestamp').value = toLocalInput(new Date());
+    if (token) showApp();
+  };
+
+  function toLocalInput(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function toISOLocal(localStr) {
+    return new Date(localStr).toISOString().slice(0, 19);
+  }
+
+  function headers() {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+  }
+
+  // ---- AUTH ----
+  function toggleAuthMode() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    document.querySelector('.auth-box .btn').textContent = authMode === 'login' ? 'Login' : 'Register';
+    document.getElementById('auth-switch-text').innerHTML =
+            authMode === 'login'
+                    ? `No account? <span onclick="toggleAuthMode()">Register</span>`
+                    : `Have an account? <span onclick="toggleAuthMode()">Login</span>`;
+    document.getElementById('auth-msg').innerHTML = '';
+  }
+
+  function showMsg(elId, text, type) {
+    document.getElementById(elId).innerHTML = `<div class="msg ${type}">${text}</div>`;
+  }
+
+  async function submitAuth() {
+    const username = document.getElementById('auth-username').value.trim();
+    const password = document.getElementById('auth-password').value;
+    if (!username || !password) return showMsg('auth-msg', 'Fill in both fields', 'error');
+
+    const endpoint = authMode === 'login' ? '/login' : '/register';
+    const res = await fetch(BASE + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const text = await res.text();
+
+    if (!res.ok) return showMsg('auth-msg', text || 'Error', 'error');
+
+    if (authMode === 'register') {
+      showMsg('auth-msg', 'Registered! Now login.', 'success');
+      toggleAuthMode();
+    } else {
+      token = text;
+      localStorage.setItem('sm_token', token);
+      showApp();
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('auth-screen').style.display !== 'none') submitAuth();
+  });
+
+  function logout() {
+    token = '';
+    localStorage.removeItem('sm_token');
+    disconnectWS();
+    document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('auth-screen').style.display = 'flex';
+  }
+
+  function showApp() {
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    loadNotifications();
+    connectWS();
+  }
+
+  // ---- WEBSOCKET ----
+  function connectWS() {
+    const sock = new SockJS(`${BASE}/ws`);
+    stompClient = Stomp.over(sock);
+    stompClient.debug = null;
+    stompClient.connect({}, () => {
+      setWS(true);
+      stompClient.subscribe('/topic/notifications', msg => {
+        const data = JSON.parse(msg.body);
+        handleWSMessage(data);
+      });
+    }, () => { setWS(false); });
+  }
+
+  function disconnectWS() {
+    if (stompClient) stompClient.disconnect();
+    setWS(false);
+  }
+
+  function setWS(connected) {
+    document.getElementById('ws-dot').className = 'ws-dot' + (connected ? ' connected' : '');
+    document.getElementById('ws-label').textContent = connected ? 'ws: live' : 'ws: disconnected';
+  }
+
+  // WS messages: reload the current page so counts/order stay accurate
+  function handleWSMessage(data) {
+    loadNotifications();
+  }
+
+  // ---- LOAD (paged) ----
+  async function loadNotifications() {
+    let url;
+    if (currentFilter === 'ALL') {
+      url = `${BASE}/api/notifications/logs?page=${pgPage}&size=${pgSize}&sortBy=${pgSort}`;
+    } else {
+      url = `${BASE}/api/notifications/status/${currentFilter}?page=${pgPage}&size=${pgSize}&sortBy=${pgSort}`;
+    }
+
+    const res = await fetch(url, { headers: headers() });
+    if (res.status === 401) { logout(); return; }
+
+    const page = await res.json();
+    allNotifications = page.content || [];
+    pgTotalPages = page.totalPages || 1;
+    pgTotalElements = page.totalElements || allNotifications.length;
+    pgPage = page.number || 0;
+
+    renderNotifications();
+    renderPagination();
+  }
+
+  // ---- RENDER ----
+  function renderNotifications(newId = null) {
+    const list = document.getElementById('notifications-list');
+    let data = [...allNotifications];
+
+    if (data.length === 0) {
+      list.innerHTML = `<div class="empty-state">No notifications found.</div>`;
+      return;
+    }
+
+    list.innerHTML = data.map(n => `
+      <div class="notif-card ${n.id === newId ? 'new' : ''}" id="card-${n.id}">
+        <span class="status-pill ${n.status}">${n.status}</span>
+        <div class="notif-body">
+          <div class="notif-msg">${escHtml(n.message)}</div>
+          <div class="notif-meta">db:${n.database_id} &nbsp;·&nbsp; ${formatTime(n.timeStamp)} &nbsp;·&nbsp; #${n.id}</div>
+        </div>
+        <div class="notif-actions">
+          <select class="toggle-select" onchange="toggleStatus(${n.id}, this.value)" title="Quick status change">
+            <option value="UP" ${n.status==='UP'?'selected':''}>UP</option>
+            <option value="DOWN" ${n.status==='DOWN'?'selected':''}>DOWN</option>
+            <option value="DEGRADED" ${n.status==='DEGRADED'?'selected':''}>DEGRADED</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick='openEdit(${JSON.stringify(n)})'>Edit</button>
+          <button class="btn btn-danger" onclick="deleteNotification(${n.id})">Del</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // ---- RENDER PAGINATION ----
+  function renderPagination() {
+    const bar = document.getElementById('pagination-bar');
+    bar.style.display = 'flex';
+
+    document.getElementById('pg-current').textContent = pgPage + 1;
+    document.getElementById('pg-total').textContent = pgTotalPages;
+    document.getElementById('pg-count').textContent = pgTotalElements + ' total';
+
+    const ctrl = document.getElementById('pg-controls');
+    const maxVisible = 5;
+    let startPage = Math.max(0, pgPage - Math.floor(maxVisible / 2));
+    let endPage = Math.min(pgTotalPages - 1, startPage + maxVisible - 1);
+    if (endPage - startPage < maxVisible - 1) startPage = Math.max(0, endPage - maxVisible + 1);
+
+    let html = `<button class="page-btn arrow" onclick="goToPage(0)" ${pgPage===0?'disabled':''}>«</button>`;
+    html += `<button class="page-btn arrow" onclick="goToPage(${pgPage-1})" ${pgPage===0?'disabled':''}>‹</button>`;
+
+    if (startPage > 0) html += `<span class="page-btn" style="cursor:default;opacity:0.4">…</span>`;
+
+    for (let i = startPage; i <= endPage; i++) {
+      html += `<button class="page-btn ${i===pgPage?'active':''}" onclick="goToPage(${i})">${i+1}</button>`;
+    }
+
+    if (endPage < pgTotalPages - 1) html += `<span class="page-btn" style="cursor:default;opacity:0.4">…</span>`;
+
+    html += `<button class="page-btn arrow" onclick="goToPage(${pgPage+1})" ${pgPage>=pgTotalPages-1?'disabled':''}>›</button>`;
+    html += `<button class="page-btn arrow" onclick="goToPage(${pgTotalPages-1})" ${pgPage>=pgTotalPages-1?'disabled':''}>»</button>`;
+
+    ctrl.innerHTML = html;
+  }
+
+  function goToPage(p) {
+    if (p < 0 || p >= pgTotalPages) return;
+    pgPage = p;
+    loadNotifications();
+  }
+
+  function onPageSizeChange() {
+    pgSize = parseInt(document.getElementById('pg-size').value);
+    pgPage = 0;   // reset to first page when page size changes
+    loadNotifications();
+  }
+
+  function onSortChange() {
+    pgSort = document.getElementById('pg-sort').value;
+    pgPage = 0;
+    loadNotifications();
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ---- FILTER ----
+  function filterBy(status, btn) {
+    currentFilter = status;
+    pgPage = 0;  // reset to first page on filter change
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadNotifications();
+  }
+
+  // ---- CREATE ----
+  async function createNotification() {
+    const db_id = parseInt(document.getElementById('new-db-id').value);
+    const status = document.getElementById('new-status').value;
+    const message = document.getElementById('new-message').value.trim();
+    const ts = document.getElementById('new-timestamp').value;
+
+    if (!db_id || !message || !ts) return showMsg('create-msg', 'Fill all fields', 'error');
+
+    const body = { database_id: db_id, status, message, timeStamp: toISOLocal(ts) };
+
+    const res = await fetch(`${BASE}/api/notifications/notify`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      showMsg('create-msg', 'Created!', 'success');
+      document.getElementById('new-message').value = '';
+      loadNotifications();
+    } else {
+      showMsg('create-msg', 'Error creating', 'error');
+    }
+  }
+
+  // ---- DELETE ----
+  async function deleteNotification(id) {
+    await fetch(`${BASE}/api/notifications/drop/${id}`, { method: 'DELETE', headers: headers() });
+    // WS will trigger reload
+  }
+
+  // ---- TOGGLE ----
+  async function toggleStatus(id, status) {
+    await fetch(`${BASE}/api/notifications/${id}/${status}`, { method: 'PUT', headers: headers() });
+    // WS handles update
+  }
+
+  // ---- EDIT MODAL ----
+  function openEdit(n) {
+    document.getElementById('edit-id').value = n.id;
+    document.getElementById('edit-db-id').value = n.database_id;
+    document.getElementById('edit-status').value = n.status;
+    document.getElementById('edit-message').value = n.message;
+    document.getElementById('edit-timestamp').value = n.timeStamp ? n.timeStamp.slice(0, 16) : '';
+    document.getElementById('edit-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+
+  async function saveEdit() {
+    const id = parseInt(document.getElementById('edit-id').value);
+    const database_id = parseInt(document.getElementById('edit-db-id').value);
+    const status = document.getElementById('edit-status').value;
+    const message = document.getElementById('edit-message').value.trim();
+    const ts = document.getElementById('edit-timestamp').value;
+
+    const body = { id, database_id, status, message, timeStamp: toISOLocal(ts) };
+    const res = await fetch(`${BASE}/api/notifications/notification`, {
+      method: 'PUT', headers: headers(), body: JSON.stringify(body)
+    });
+    if (res.ok) closeModal();
+  }
+
+
+  // ---- USERS TOGGLE ----
+  let usersVisible = false;
+  function toggleUsers() {
+    usersVisible = !usersVisible;
+    document.getElementById('users-collapsible').style.display = usersVisible ? '' : 'none';
+    document.getElementById('users-toggle-btn').textContent = usersVisible ? 'Hide' : 'Show';
+  }
+
+  // ---- USERS ----
+  async function loadUsers() {
+    const targets = ['users-list', 'auth-users-list'].map(id => document.getElementById(id)).filter(Boolean);
+    targets.forEach(el => el.innerHTML = `<div class="empty-state" style="padding:16px 0;font-size:11px;">Loading...</div>`);
+    try {
+      const res = await fetch(`${BASE}/users`);
+      if (!res.ok) {
+        targets.forEach(el => el.innerHTML = `<div class="empty-state" style="padding:16px 0;font-size:11px;color:var(--down);">Failed to load users.</div>`);
+        return;
+      }
+      const users = await res.json();
+      renderUsers(users);
+    } catch (e) {
+      targets.forEach(el => el.innerHTML = `<div class="empty-state" style="padding:16px 0;font-size:11px;color:var(--down);">Network error.</div>`);
+    }
+  }
+
+  function renderUsers(users) {
+    const html = (!users || users.length === 0)
+            ? `<div class="empty-state" style="padding:16px 0;font-size:11px;">No users found.</div>`
+            : users.map(u => `
+        <div class="user-row">
+          <div class="user-info">
+            <div class="user-name">${escHtml(u.username)}</div>
+            <div class="user-id">#${u.id}</div>
+          </div>
+          <span class="role-badge ${u.role}">${u.role}</span>
+        </div>`).join('');
+    ['users-list', 'auth-users-list'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = html;
+    });
+  }
+
+  // close modal on overlay click
+  document.getElementById('edit-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('edit-modal')) closeModal();
+  });
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 package com.demo.ServerMonitor.services
 
 import com.demo.ServerMonitor.dto.RegistrationDTO
-import com.demo.ServerMonitor.dto.RegistrationMapper
+//import com.demo.ServerMonitor.dto.RegistrationMapper
 import com.demo.ServerMonitor.models.User
 import com.demo.ServerMonitor.repositories.RefreshTokenRepository
 import com.demo.ServerMonitor.repositories.UserRepository
@@ -27,15 +27,17 @@ class UserRegistrationService (
     @Autowired
     private val jwtService : JwtService,
 
-    @Autowired
-    private val registrationMapper: RegistrationMapper,
-
     @Value($$"${app.encryptionRounds}")
     private val encryptionRounds: Int,
 
+    @Value($$"${app.expirationTime}")
+    private val expirationTime : Long,
+
+    @Value($$"${app.refreshExpirationTime}")
+    val refreshExpirationTime: Long,
+
     @Autowired
     private val refreshTokenService: RefreshTokenService
-
 
 ){
 
@@ -43,13 +45,13 @@ class UserRegistrationService (
     private lateinit var refreshTokenRepository: RefreshTokenRepository
     private val encoder : BCryptPasswordEncoder = BCryptPasswordEncoder(encryptionRounds)    //the encryption happens hear
 
-    fun register(registrationDTO: RegistrationDTO){
+    fun register(registration : RegistrationDTO){
 
-        if(usersRepository.findByUsername(registrationDTO.username)!=null){
+        if(usersRepository.findByUsername(registration.username)!=null){
             throw BadCredentialsException("Username not found")
         }
 
-        val user : User = registrationMapper.toEntity(registrationDTO)
+        val user : User = registration.toEntity()
         user.password = encoder.encode(user.password).toString()   //this makes the problem on validation
         usersRepository.save(user)                                        //created registrationDTO to use for raw validation (not encrypted)
     }
@@ -63,19 +65,12 @@ class UserRegistrationService (
         )
 
         if(authenticated.isAuthenticated()){
-            val accessToken = jwtService.generateToken(user.username, user.role)
-            val refreshToken = refreshTokenService.createRefreshToken(user.username).token
+            val accessToken = jwtService.generateToken(user.username, user.role, expirationTime)
+            val refreshToken = refreshTokenService.createRefreshToken(user.username, refreshExpirationTime).token
 
             return mapOf("accessToken" to accessToken,"refreshToken" to refreshToken)
         }
         throw BadCredentialsException("Authentication failed")
     }
-
-
-
-
-
-
-
 
 }

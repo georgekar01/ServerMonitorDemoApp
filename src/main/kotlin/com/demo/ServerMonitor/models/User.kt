@@ -29,5 +29,14 @@ data class User (
     @Column(nullable = false)
     var role : UserRole = UserRole.USER
 
-)
+){
+    fun toDTO() : UserDTO{
+        return UserDTO(
+            id = this.id,
+            username = this.username,
+            role = this.role
+        )
+    }
+
+}
 

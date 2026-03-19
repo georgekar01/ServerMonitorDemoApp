@@ -1,7 +1,6 @@
 package com.demo.ServerMonitor.services
 
 import com.demo.ServerMonitor.dto.UserDTO
-import com.demo.ServerMonitor.dto.UserMapper
 import com.demo.ServerMonitor.models.User
 import com.demo.ServerMonitor.models.UserPrincipal
 import com.demo.ServerMonitor.repositories.UserRepository
@@ -16,9 +15,6 @@ class UserService(
 
     @Autowired
     private val userRepository : UserRepository,
-
-    @Autowired
-    private val userMapper : UserMapper
 
     ) : UserDetailsService {
 
@@ -43,7 +39,7 @@ class UserService(
         }
 
         for(user in userList){
-            userDTOList.add(userMapper.toDTO(user))
+            userDTOList.add(user.toDTO())
         }
 
         return userDTOList

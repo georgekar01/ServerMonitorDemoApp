@@ -27,14 +27,4 @@ import java.time.LocalDateTime
     @Column(nullable = false)
     var timeStamp : LocalDateTime){
 
-    fun Notification(database_id: Long,
-                     status: Status,
-                     message : String,
-                     timestamp: LocalDateTime){
-        this.database_id = database_id
-        this.status = status
-        this.message = message
-        this.timeStamp = timestamp
-    }
-
  }

@@ -27,21 +27,27 @@ class RefreshTokenService (
 
 ){
 
-    fun createRefreshToken(username : String) : RefreshToken{
+    fun createRefreshToken(username : String, expiration : Long) : RefreshToken{
         val now = Date()
         val expirationDate = Date(now.time+refreshExpirationTime)
 
+        val userToRefresh = userRepository.findByUsername(username) ?: throw RuntimeException("User not found")
+
         return refreshTokenRepository.save(RefreshToken(
-                user = userRepository.findByUsername(username) ?: throw RuntimeException("User not found"),   //returns User value instead of optional
-                token = UUID.randomUUID().toString(),
+                user = userToRefresh,
+                //user = userRepository.findByUsername(username) ?: throw RuntimeException("User not found"),   //returns User value instead of optional
+                //token = UUID.randomUUID().toString(),
+                token = jwtService.generateToken(userToRefresh.username, userToRefresh.role, expiration),
                 expiryDate = expirationDate
             )
         )
     }
 
+    /*
     fun isTokenExpired(token: RefreshToken) : Boolean{
         return token.expiryDate.before(Date())
     }
+     */
 
     fun refreshToken(payload : Map<String, String>) : String {
         val requestToken : String = payload.get("refreshToken") ?: throw Exception()
@@ -52,11 +58,21 @@ class RefreshTokenService (
 
         val token = refreshTokenRepository.findByToken(requestToken) ?: throw RuntimeException("Invalid refresh token")
 
+        /*
         if(isTokenExpired(token)){
             token.active = false
             refreshTokenRepository.save(token)
             throw RuntimeException("Refresh token is expired. Please login again")
         }
+         */
+
+        if(jwtService.isTokenExpired(payload.get("refreshToken") ?: throw Exception())){
+            token.active = false
+            refreshTokenRepository.save(token)
+            throw RuntimeException("Refresh token is expired. Please login again")
+        }
+
+
 
         val tokenGenerated  = jwtService.generateToken(
             token.user.username,

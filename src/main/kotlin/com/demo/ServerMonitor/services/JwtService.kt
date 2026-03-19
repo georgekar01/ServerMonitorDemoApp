@@ -23,10 +23,11 @@ class JwtService (
     private val expirationTime : Long,
 
     @Value($$"${app.keyGenAlgorithm}")
-    private val keyGenAlgorithm: String
+    private val keyGenAlgorithm: String,
 
 ){
-    var secretKey : String = ""
+    var secretKey = ""
+
 
     init{
         try {
@@ -39,10 +40,12 @@ class JwtService (
 
     }
 
-    fun generateToken(username : String, role : UserRole) : String{
+
+
+    fun generateToken(username : String, role : UserRole, expiration: Long = expirationTime) : String{
 
         val now = Date()
-        val expiryDate = Date(now.time+expirationTime)   //plus 1 hour
+        val expiryDate = Date(now.time+expiration)   //plus 1 hour
         return Jwts.builder()
             .subject(username)
             .claim("role",role)
@@ -57,6 +60,7 @@ class JwtService (
         val keyBytes : ByteArray  = Base64.getDecoder().decode(secretKey)
         return Keys.hmacShaKeyFor(keyBytes)
     }
+
 
     fun extractAllClaims(token : String) : Claims {
         return Jwts.parser()

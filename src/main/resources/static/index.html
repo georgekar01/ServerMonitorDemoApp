@@ -701,7 +701,8 @@
 
     if (res.status === 401 || res.status === 403) {
       logout();
-      showMsg('auth-msg', 'Please log in to continue.', 'error');
+      showMsg('auth-msg', 'Your session has expired. Please log in again.', 'error');
+      return null;
     }
 
     return res;

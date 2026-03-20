@@ -646,6 +646,8 @@
 
 <script>
   const BASE = 'http://localhost:8080';
+  let token = localStorage.getItem('sm_token') || '';
+  let refreshToken = localStorage.getItem('sm_refresh_token') || '';
   let authMode = 'login';
   let stompClient = null;
   let allNotifications = [];   // current page's data
@@ -659,12 +661,9 @@
   let pgTotalElements = 0;
 
   // ---- BOOT ----
-  window.onload = async () => {
+  window.onload = () => {
     document.getElementById('new-timestamp').value = toLocalInput(new Date());
-    // If HttpOnly cookies exist, try to restore the session automatically.
-    // If not authorized, apiFetch will keep the user on the auth screen.
-    const res = await apiFetch(`${BASE}/api/notifications/logs?page=0&size=1&sortBy=status`);
-    if (res && res.ok) showApp();
+    if (token) showApp();
   };
 
   function toLocalInput(d) {
@@ -677,32 +676,35 @@
   }
 
   function headers() {
-    return { 'Content-Type': 'application/json' };
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
   }
 
-  // Wraps fetch for API calls.
-  // Auth is via HttpOnly cookies set by the backend, so we must include credentials.
+  // Wraps fetch with automatic JWT refresh on 401.
+  // If the refresh also fails, logs the user out.
   async function apiFetch(url, options = {}) {
-    options = { credentials: 'include', ...options };
     options.headers = { ...headers(), ...(options.headers || {}) };
     let res = await fetch(url, options);
 
-    if (res.status === 401 || res.status === 403) {
-      // Attempt silent refresh (refreshToken cookie is HttpOnly, so no JSON body).
+    if ((res.status === 401 || res.status === 403) && refreshToken) {
+      // Attempt silent refresh
       const refreshRes = await fetch(`${BASE}/refresh`, {
         method: 'POST',
-        credentials: 'include'
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken })
       });
-      if (refreshRes.ok) {
-        // Refresh endpoint overwrites the accessToken cookie; retry original request once.
-        res = await fetch(url, options);
-      }
-    }
 
-    if (res.status === 401 || res.status === 403) {
-      logout();
-      showMsg('auth-msg', 'Your session has expired. Please log in again.', 'error');
-      return null;
+      if (refreshRes.ok) {
+        const newAccessToken = await refreshRes.text();
+        token = newAccessToken;
+        localStorage.setItem('sm_token', token);
+        // Retry the original request with the new token
+        options.headers['Authorization'] = `Bearer ${token}`;
+        res = await fetch(url, options);
+      } else {
+        logout();
+        showMsg('auth-msg', 'Your session has expired. Please log in again.', 'error');
+        return null;
+      }
     }
 
     return res;
@@ -732,7 +734,6 @@
     const res = await fetch(BASE + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ username, password })
     });
     const text = await res.text();
@@ -743,6 +744,11 @@
       showMsg('auth-msg', 'Registered! Now login.', 'success');
       toggleAuthMode();
     } else {
+      const data = JSON.parse(text);
+      token = data.accessToken;
+      refreshToken = data.refreshToken;
+      localStorage.setItem('sm_token', token);
+      localStorage.setItem('sm_refresh_token', refreshToken);
       showApp();
     }
   }
@@ -752,6 +758,10 @@
   });
 
   function logout() {
+    token = '';
+    refreshToken = '';
+    localStorage.removeItem('sm_token');
+    localStorage.removeItem('sm_refresh_token');
     disconnectWS();
     document.getElementById('app-screen').style.display = 'none';
     document.getElementById('auth-screen').style.display = 'flex';

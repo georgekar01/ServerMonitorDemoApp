@@ -2,13 +2,12 @@ package com.demo.ServerMonitor.services
 
 import com.demo.ServerMonitor.enums.UserRole
 import io.jsonwebtoken.Claims
+import io.jsonwebtoken.ExpiredJwtException
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.security.core.userdetails.UserDetails
-import org.springframework.security.crypto.keygen.BytesKeyGenerator
 import org.springframework.stereotype.Service
-import java.security.Key
 import java.security.NoSuchAlgorithmException
 import java.util.*
 import javax.crypto.SecretKey
@@ -62,7 +61,7 @@ class JwtService (
     }
 
 
-    fun extractAllClaims(token : String) : Claims {
+    fun extractAllClaims(token: String) : Claims {
         return Jwts.parser()
             .verifyWith(getSigningKey())
             .build()
@@ -75,7 +74,14 @@ class JwtService (
     }
 
     fun isTokenExpired(token : String) : Boolean{
-        return extractAllClaims(token).expiration.before(Date())
+
+        try {
+            return extractAllClaims(token).expiration.before(Date())
+        } catch (e: ExpiredJwtException) {
+            println(">>> isTokenExpired exception: ${e::class.simpleName}: ${e.message}")
+            return true
+        }
+
     }
 
     fun validateToken(token : String, userDetails : UserDetails) : Boolean{

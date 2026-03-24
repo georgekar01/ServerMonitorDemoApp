@@ -646,8 +646,6 @@
 
 <script>
   const BASE = 'http://localhost:8080';
-  let token = localStorage.getItem('sm_token') || '';
-  let refreshToken = localStorage.getItem('sm_refresh_token') || '';
   let authMode = 'login';
   let stompClient = null;
   let allNotifications = [];   // current page's data
@@ -661,9 +659,16 @@
   let pgTotalElements = 0;
 
   // ---- BOOT ----
-  window.onload = () => {
+  window.onload = async () => {
     document.getElementById('new-timestamp').value = toLocalInput(new Date());
-    if (token) showApp();
+    
+    // Check if user is authenticated by doing a lightweight fetch
+    try {
+      const res = await apiFetch(`${BASE}/api/notifications/logs?page=0&size=1`);
+      if (res && res.ok) showApp();
+    } catch(e) {
+      // Not logged in, auth screen will stay visible
+    }
   };
 
   function toLocalInput(d) {
@@ -676,29 +681,25 @@
   }
 
   function headers() {
-    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    return { 'Content-Type': 'application/json' };
   }
 
   // Wraps fetch with automatic JWT refresh on 401.
-  // If the refresh also fails, logs the user out.
   async function apiFetch(url, options = {}) {
     options.headers = { ...headers(), ...(options.headers || {}) };
+    options.credentials = 'include'; // Send HttpOnly cookies
+    
     let res = await fetch(url, options);
 
-    if ((res.status === 401 || res.status === 403) && refreshToken) {
-      // Attempt silent refresh
+    if (res.status === 401 || res.status === 403) {
+      // Attempt silent refresh by calling /refresh
       const refreshRes = await fetch(`${BASE}/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken })
+        credentials: 'include' 
       });
 
       if (refreshRes.ok) {
-        const newAccessToken = await refreshRes.text();
-        token = newAccessToken;
-        localStorage.setItem('sm_token', token);
-        // Retry the original request with the new token
-        options.headers['Authorization'] = `Bearer ${token}`;
+        // Retry the original request
         res = await fetch(url, options);
       } else {
         logout();
@@ -733,6 +734,7 @@
     const endpoint = authMode === 'login' ? '/login' : '/register';
     const res = await fetch(BASE + endpoint, {
       method: 'POST',
+      credentials: 'include', // Needed to accept cookies
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
@@ -744,11 +746,6 @@
       showMsg('auth-msg', 'Registered! Now login.', 'success');
       toggleAuthMode();
     } else {
-      const data = JSON.parse(text);
-      token = data.accessToken;
-      refreshToken = data.refreshToken;
-      localStorage.setItem('sm_token', token);
-      localStorage.setItem('sm_refresh_token', refreshToken);
       showApp();
     }
   }
@@ -757,11 +754,10 @@
     if (e.key === 'Enter' && document.getElementById('auth-screen').style.display !== 'none') submitAuth();
   });
 
-  function logout() {
-    token = '';
-    refreshToken = '';
-    localStorage.removeItem('sm_token');
-    localStorage.removeItem('sm_refresh_token');
+  async function logout() {
+    // Tell backend to clear cookies
+    await fetch(`${BASE}/logout`, { method: 'POST', credentials: 'include' });
+    
     disconnectWS();
     document.getElementById('app-screen').style.display = 'none';
     document.getElementById('auth-screen').style.display = 'flex';

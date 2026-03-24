@@ -38,7 +38,7 @@ class SecurityConfig(
         return http
                     .csrf{customizer -> customizer.disable()}
                     .authorizeHttpRequests { request -> request
-                        .requestMatchers("/register","/login", "/refresh", "/users","/index.html", "/ws/**") //if i dont type the mappings correctly the program gives a brutal error
+                        .requestMatchers("/register","/login", "/logout", "/refresh", "/users","/index.html", "/ws/**") //if i dont type the mappings correctly the program gives a brutal error
                         .permitAll()
                         .anyRequest()
                         .authenticated() }

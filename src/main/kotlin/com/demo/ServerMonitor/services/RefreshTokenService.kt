@@ -29,7 +29,7 @@ class RefreshTokenService (
 
     fun createRefreshToken(username : String, expiration : Long) : RefreshToken{
         val now = Date()
-        val expirationDate = Date(now.time+refreshExpirationTime)
+        val expirationDate = Date(now.time+expiration)
 
         val userToRefresh = userRepository.findByUsername(username) ?: throw RuntimeException("User not found")
 
@@ -43,36 +43,21 @@ class RefreshTokenService (
         )
     }
 
-    /*
-    fun isTokenExpired(token: RefreshToken) : Boolean{
-        return token.expiryDate.before(Date())
-    }
-     */
+    fun refreshToken(payload : String) : String {
 
-    fun refreshToken(payload : Map<String, String>) : String {
-        val requestToken : String = payload.get("refreshToken") ?: throw Exception()
+        val requestToken : String = payload
 
         if(requestToken.isNullOrBlank()){
             throw RuntimeException("Refresh token is required")
         }
 
-        val token = refreshTokenRepository.findByToken(requestToken) ?: throw RuntimeException("Invalid refresh token")
+        val token = refreshTokenRepository.findByToken(requestToken)
 
-        /*
-        if(isTokenExpired(token)){
+        if(jwtService.isTokenExpired(payload)){
             token.active = false
-            refreshTokenRepository.save(token)
+            refreshTokenRepository.saveAndFlush(token)
             throw RuntimeException("Refresh token is expired. Please login again")
         }
-         */
-
-        if(jwtService.isTokenExpired(payload.get("refreshToken") ?: throw Exception())){
-            token.active = false
-            refreshTokenRepository.save(token)
-            throw RuntimeException("Refresh token is expired. Please login again")
-        }
-
-
 
         val tokenGenerated  = jwtService.generateToken(
             token.user.username,

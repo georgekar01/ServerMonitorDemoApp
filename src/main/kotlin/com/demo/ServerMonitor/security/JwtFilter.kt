@@ -27,29 +27,34 @@ class JwtFilter(
         response: HttpServletResponse,
         filterChain: FilterChain
     ) {
-        val authHeader = request.getHeader("Authorization")
 
-        if(authHeader == null || authHeader.startsWith("Bearer ")==false){
-            filterChain.doFilter(request,response)
+        //-----Fetching the existing accessToken cookie in order to add it to the filtering
+        val token = request.cookies?.find{it.name == "accessToken"}?.value
+
+        if(token==null){
+            filterChain.doFilter(request, response)
             return
         }
 
-        val token = authHeader.substring(7)
-        val username = jwtService.extractUsername(token)
+        val username = try {
+            jwtService.extractUsername(token)
+        } catch (e: Exception) {
+            null
+        }
 
         if(username!=null && SecurityContextHolder.getContext().authentication == null) {
-            val userDetails : UserDetails = userDetailsService.loadUserByUsername(username)
+                val userDetails : UserDetails = userDetailsService.loadUserByUsername(username)
 
-            if(jwtService.validateToken(token, userDetails)){
-                val authToken = UsernamePasswordAuthenticationToken(userDetails,null, userDetails.authorities)
+                if(jwtService.validateToken(token, userDetails)) {
+                    val authToken = UsernamePasswordAuthenticationToken(userDetails, null, userDetails.authorities)
 
-                authToken.details = WebAuthenticationDetailsSource().buildDetails(request)
-                SecurityContextHolder.getContext().authentication = authToken
+                    authToken.details = WebAuthenticationDetailsSource().buildDetails(request)
+                    SecurityContextHolder.getContext().authentication = authToken
+                }
+
             }
 
-            filterChain.doFilter(request,response)
-
-        }
+        filterChain.doFilter(request,response)
 
     }
 
